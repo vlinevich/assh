@@ -1,0 +1,111 @@
+#!/bin/bash
+
+#
+# AWS-aware ssh wrapper
+#
+# ssh to a host by ec2 tag Name "dev-docker1"
+#   assh dev-docker1
+#
+# ssh to hosts one by one
+#   assh dev-docker?                  
+#   assh dev-docker1 ops-jenkins1 
+#
+# pass ssh params and execute remote commands
+#   assh dev-docker1 -- -i ~/.ssh/key.pem -l username
+#   assh dev-docker1 -- 'hostname'
+#
+# -t tmux mode: opens all the hosts as tmux panes
+# -f fabric mode: parallel remote command execution
+# 
+#
+
+hosts_list_to_resolve=""
+ssh_params=""
+ip_list=""
+debug=""
+mode="seq"
+
+
+# Parse args
+while [[ $# > 0 ]]; do
+
+    case $1 in
+        "-t" )
+            mode="tmux"
+            ;;
+        "-f" )
+            mode="fabric"
+            ;;
+        "-d" )
+            debug=1
+            ;;
+    esac
+
+    # all the args without '-' are host identifiers
+    if [[ $1 != "-"* ]]; then
+        hosts_list_to_resolve="$hosts_list_to_resolve $1"  
+    
+    # the rest after '--' are ssh params
+    elif [[ $1 == '--' ]]; then 
+        shift
+        ssh_params="$*"
+        break
+    fi;
+
+    shift
+done 
+
+[[ $debug ]] && echo "Mode: $mode; hosts_to_resolve:'$hosts_list_to_resolve'; ssh_params: $ssh_params"
+
+
+# Resolve ipaddresses of hosts
+
+for arg in $hosts_list_to_resolve; do
+
+    if [[ $arg =~ ^i-[a-z0-9]{8,16} ]]; then
+        [[ $debug ]] && echo "got instance id: $arg"
+        result=$(aws ec2 describe-instances --instance-ids $arg | jq -r ".Reservations[] .Instances[] .PrivateIpAddress")
+        ip_list="$ip_list $result"
+
+    elif [[ $arg =~ ^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$ ]]; then
+        [[ $debug ]] && echo "got ip address: $arg"
+        ip_list="$ip_list $arg"
+
+    else 
+        [[ $debug ]] && echo "Looking up by aws tag Name: $arg"
+        result=$(aws ec2 describe-instances --filter Name=tag:Name,Values="$arg" | jq -r ".Reservations[] .Instances[] .PrivateIpAddress")
+        ip_list="$ip_list $result"
+    fi
+
+done
+
+ip_list=$(echo $ip_list | tr $'\n' ' ')
+[[ $debug ]] && echo "got ip_list: $ip_list"
+
+
+# Process ipaddresses
+case $mode in
+
+    "seq" )
+        echo "sequentional mode: $ip_list"
+        for ip in $ip_list; do
+            echo "ssh $ip $ssh_params"
+            ssh $ip $ssh_params
+        done
+    ;;
+
+    "tmux" )
+
+        [ ! $TMUX ] && { echo "No \$TMUX var set, exiting."; exit 1; }
+        echo "tmux mode: $ip_list"
+        for ip in $ip_list; do
+            echo $ip
+        done
+    ;;
+
+    "fabric" )
+        which fab 1>/dev/null || { echo "Please install 'fabric' via pip"; exit 1; }
+        echo "fab mode: $ip_list" 
+    ;;
+esac
+
