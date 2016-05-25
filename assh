@@ -3,20 +3,25 @@
 #
 # AWS-aware ssh wrapper
 #
-# ssh to a host by ec2 tag Name "dev-docker1"
+# ssh to a host using ec2_tag_Name, ipaddr or instance-id
 #   assh dev-docker1
+#   assh 172.31.1.2
+#   assh i-1234abcd
 #
-# ssh to hosts one by one
+# ssh to multiple hosts one by one
 #   assh dev-docker?                  
-#   assh dev-docker1 ops-jenkins1 
+#   assh dev-docker* prod-app1 172.31.1.2 i-1234abcd 172.31.1.2
 #
-# pass ssh params and execute remote commands
+# pass ssh params and execute remote commands sequensionally
 #   assh dev-docker1 -- -i ~/.ssh/key.pem -l username
-#   assh dev-docker1 -- 'hostname'
+#   assh dev-docker* -- 'hostname'
 #
-# -t tmux mode: opens all the hosts as tmux panes
+# -t tmux mode: open all the hosts as tmux panes
+#   assh prod-mqtt* -t
+#   assh prod-mqtt* -t -- 'tail -f /var/log/*-service/app.log | grep ERROR'
+#
 # -f fabric mode: parallel remote command execution
-# 
+#  TODO 
 #
 
 hosts_list_to_resolve=""
@@ -72,7 +77,7 @@ for arg in $hosts_list_to_resolve; do
         ip_list="$ip_list $arg"
 
     else 
-        [[ $debug ]] && echo "Looking up by aws tag Name: $arg"
+        [[ $debug ]] && echo "got AWS tag Name: $arg"
         result=$(aws ec2 describe-instances --filter Name=tag:Name,Values="$arg" | jq -r ".Reservations[] .Instances[] .PrivateIpAddress")
         ip_list="$ip_list $result"
     fi
@@ -87,7 +92,7 @@ ip_list=$(echo $ip_list | tr $'\n' ' ')
 case $mode in
 
     "seq" )
-        echo "sequentional mode: $ip_list"
+        [[ $debug ]] && echo "sequentional mode: $ip_list"
         for ip in $ip_list; do
             echo "ssh $ip $ssh_params"
             ssh $ip $ssh_params
@@ -95,17 +100,47 @@ case $mode in
     ;;
 
     "tmux" )
+        which tmux 1>/dev/null || { echo "Please install 'tmux' via brew or your OS's package manager"; exit 1; }
+        [[ $debug ]] && echo "tmux mode: $ip_list"
+        
+        tmux_cmd=""
+        tmux_target=""
+        tmux_pane_count=0
 
-        [ ! $TMUX ] && { echo "No \$TMUX var set, exiting."; exit 1; }
-        echo "tmux mode: $ip_list"
         for ip in $ip_list; do
-            echo $ip
+            if [[ $tmux_pane_count == 0 ]]; then
+                # sending a command to initail pane with send-keys
+                tmux_cmd="$tmux_cmd tmux send-keys $tmux_target 'ssh $ip $ssh_params' 'C-m';"
+            else
+                # the rest panes recive commands on split-window
+                tmux_cmd="$tmux_cmd tmux split-window $tmux_target ssh $ip $ssh_params;"
+            fi
+            tmux_pane_count=$((tmux_pane_count+1))
         done
+
+        tmux_cmd="$tmux_cmd tmux set-window-option synchronize-panes on;"
+        tmux_cmd="$tmux_cmd tmux select-layout tiled;"
+
+        if [ ! $TMUX ]; then 
+            # creating new tmux session in background, 
+            # running commands there and then attach.
+            # Otherwise new session will not recieve any commands.
+
+            tmux new-session -d -s "assh_$$"
+            tmux_target="assh_$$:0"
+            eval $tmux_cmd
+            tmux attach-session -t "assh_$$"
+
+        else 
+            # if we're already inside an active session, just executing
+            eval $tmux_cmd
+        fi
+
     ;;
 
     "fabric" )
         which fab 1>/dev/null || { echo "Please install 'fabric' via pip"; exit 1; }
-        echo "fab mode: $ip_list" 
+        [[ $debug ]] && echo "fabric mode: $ip_list" 
+        # TODO
     ;;
 esac
-
