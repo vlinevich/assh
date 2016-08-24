@@ -1,31 +1,31 @@
 #!/bin/bash
-
 #
 # AWS-aware ssh wrapper
 #
-# ssh to a host using ec2_tag_Name, ipaddr or instance-id
-#   assh dev-docker1
-#   assh 172.31.1.2
-#   assh i-1234abcd
+# ssh to a host using ec2_tag_Name, ipaddr or instance-id:
+#   - assh dev-docker1
+#   - assh 172.31.1.2
+#   - assh i-1234abcd
 #
 # ssh to multiple hosts one by one
-#   assh dev-docker?
-#   assh dev-docker* prod-app1 172.31.1.2 i-1234abcd 172.31.1.2
+#   - assh dev-app?
+#   - assh dev-app* prod-app1 172.31.1.2 i-1234abcd 172.31.2.3
 #
 # pass ssh params and execute remote commands sequensionally
-#   assh dev-docker1 -- -i ~/.ssh/key.pem -l username
-#   assh dev-docker* -- 'hostname'
+#   - assh dev-docker1 -- -i ~/.ssh/key.pem -l username
+#   - assh dev-docker* -- 'hostname'
 #
-# -t tmux mode: open all the hosts as tmux panes
-#   assh prod-mqtt* -t
-#   assh prod-mqtt* -t -- 'tail -f /var/log/*-service/app.log | grep ERROR'
+# tmux mode: open all the hosts as tmux panes
+#   - assh prod-app* -t
+#   - assh prod-app* -t -- 'tail -f /var/log/*-service/app.log | grep ERROR'
 #
-# -f fabric mode: parallel remote command execution
-#  TODO
-#
-#
-# Requires: aws cli configured, tmux (for -t mode)
-#
+# TODO:
+# fabric mode: parallel remote command execution
+
+
+### Requirements
+aws cli, tmux (for -t mode)
+
 
 hosts_list_to_resolve=""
 ssh_params=""
