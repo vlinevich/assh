@@ -21,11 +21,10 @@
 #
 # TODO:
 # fabric mode: parallel remote command execution
-
-
-### Requirements
-aws cli, tmux (for -t mode)
-
+#
+# Requirements
+# aws cli, tmux (for -t mode)
+#
 
 hosts_list_to_resolve=""
 ssh_params=""
