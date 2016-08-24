@@ -9,7 +9,7 @@
 #   assh i-1234abcd
 #
 # ssh to multiple hosts one by one
-#   assh dev-docker?                  
+#   assh dev-docker?
 #   assh dev-docker* prod-app1 172.31.1.2 i-1234abcd 172.31.1.2
 #
 # pass ssh params and execute remote commands sequensionally
@@ -21,7 +21,7 @@
 #   assh prod-mqtt* -t -- 'tail -f /var/log/*-service/app.log | grep ERROR'
 #
 # -f fabric mode: parallel remote command execution
-#  TODO 
+#  TODO
 #
 #
 # Requires: aws cli configured, tmux (for -t mode)
@@ -51,17 +51,17 @@ while [[ $# > 0 ]]; do
 
     # all the args without '-' are host identifiers
     if [[ $1 != "-"* ]]; then
-        hosts_list_to_resolve="$hosts_list_to_resolve $1"  
-    
+        hosts_list_to_resolve="$hosts_list_to_resolve $1"
+
     # the rest after '--' are ssh params
-    elif [[ $1 == '--' ]]; then 
+    elif [[ $1 == '--' ]]; then
         shift
         ssh_params="$*"
         break
     fi;
 
     shift
-done 
+done
 
 [[ $debug ]] && echo "Mode: $mode; hosts_to_resolve:'$hosts_list_to_resolve'; ssh_params: $ssh_params"
 
@@ -80,9 +80,9 @@ for arg in $hosts_list_to_resolve; do
         [[ $debug ]] && echo "got ip address: $arg"
         ip_list="$ip_list $arg"
 
-    else 
+    else
         [[ $debug ]] && echo "got AWS tag Name: $arg"
-        result=$(aws ec2 describe-instances --filter Name=tag:Name,Values="$arg" | jq -r ".Reservations[] .Instances[] .PrivateIpAddress")
+        result=$(aws ec2 describe-instances --filter Name=tag:Name,Values="$arg" Name=instance-state-name,Values="running" | jq -r ".Reservations[] .Instances[] .PrivateIpAddress")
         [[ $result == "null" ]] && $result=""
         ip_list="$ip_list $result"
     fi
@@ -91,7 +91,7 @@ done
 
 ip_list=$(echo $ip_list | tr $'\n' ' ')
 [[ $debug ]] && echo "got ip_list: $ip_list"
-
+[[ $ip_list == "" ]] && echo "Warning: no hosts matched $arg";
 
 # Process ipaddresses
 case $mode in
@@ -99,7 +99,7 @@ case $mode in
     "seq" )
         [[ $debug ]] && echo "sequentional mode: $ip_list"
         for ip in $ip_list; do
-            echo "ssh $ip $ssh_params"
+            echo "ssh $ip $ssh_params" >&2
             ssh $ip $ssh_params
         done
     ;;
@@ -107,7 +107,7 @@ case $mode in
     "tmux" )
         which tmux 1>/dev/null || { echo "Please install 'tmux' with your OS's package manager"; exit 1; }
         [[ $debug ]] && echo "tmux mode: $ip_list"
-        
+
         tmux_cmd=""
         tmux_target=""
         tmux_pane_count=0
@@ -120,14 +120,19 @@ case $mode in
                 # the rest panes recive commands on split-window
                 tmux_cmd="$tmux_cmd tmux split-window $tmux_target ssh $ip $ssh_params;"
             fi
+
+            # re-align tiles everytime a new tile is created,
+            # to avoid problems when current tile is too small to be split.
+            tmux_cmd="$tmux_cmd tmux select-layout tiled;"
+
             tmux_pane_count=$((tmux_pane_count+1))
         done
 
         tmux_cmd="$tmux_cmd tmux set-window-option synchronize-panes on;"
-        tmux_cmd="$tmux_cmd tmux select-layout tiled;"
 
-        if [ ! $TMUX ]; then 
-            # creating new tmux session in background, 
+
+        if [ ! $TMUX ]; then
+            # creating new tmux session in background,
             # running commands there and then attach.
             # Otherwise new session will not recieve any commands.
 
@@ -136,7 +141,7 @@ case $mode in
             eval $tmux_cmd
             tmux attach-session -t "assh_$$"
 
-        else 
+        else
             # if we're already inside an active session, just executing
             eval $tmux_cmd
         fi
@@ -145,7 +150,7 @@ case $mode in
 
     "fabric" )
         which fab 1>/dev/null || { echo "Please install 'fabric' via pip"; exit 1; }
-        [[ $debug ]] && echo "fabric mode: $ip_list" 
+        [[ $debug ]] && echo "fabric mode: $ip_list"
         # TODO
     ;;
 esac
